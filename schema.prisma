@@ -1,0 +1,218 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --------------------------------------
+// ENUMS
+// --------------------------------------
+
+enum UserRole {
+  ADMIN
+  PROPERTY_OWNER
+  TENANT
+  PROJECT_CLIENT
+}
+
+enum PropertyType {
+  RESIDENTIAL_HOUSE
+  APARTMENT
+  COMMERCIAL
+  LAND
+  INDUSTRIAL
+}
+
+enum ListingStatus {
+  DRAFT
+  AVAILABLE
+  UNDER_OFFER
+  SOLD
+  RENTED
+}
+
+enum ListingIntent {
+  FOR_SALE
+  FOR_RENT
+  BOTH
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  EMERGENCY
+}
+
+enum MaintenanceStatus {
+  SUBMITTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+}
+
+// --------------------------------------
+// USERS & ACCOUNTS
+// --------------------------------------
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  phone         String?
+  role          UserRole  @default(TENANT)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relationships
+  ownedProperties   Property[]           @relation("OwnerProperties")
+  leases            Lease[]              @relation("TenantLeases")
+  clientProjects    Project[]            @relation("ClientProjects")
+  maintenanceSubmitted MaintenanceRequest[] @relation("TenantRequests")
+}
+
+// --------------------------------------
+// PROPERTY & LISTINGS
+// --------------------------------------
+
+model Property {
+  id          String       @id @default(uuid())
+  title       String
+  type        PropertyType
+  address     String
+  city        String
+  bedrooms    Int?
+  bathrooms   Float?
+  sizeSqM     Float?
+  ownerId     String?
+  owner       User?        @relation("OwnerProperties", fields: [ownerId], references: [id])
+  
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  listing     Listing?
+  leases      Lease[]
+  maintenance MaintenanceRequest[]
+}
+
+model Listing {
+  id          String        @id @default(uuid())
+  propertyId  String        @unique
+  property    Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  
+  intent      ListingIntent
+  status      ListingStatus @default(DRAFT)
+  price       Decimal       @db.Decimal(12, 2)
+  description String        @db.Text
+  featured    Boolean       @default(false)
+  images      String[]      // Array of image URLs
+  amenities   String[]      // e.g., ["Garage", "Solar", "Pool", "Borehole"]
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// --------------------------------------
+// PROPERTY MANAGEMENT & LEASES
+// --------------------------------------
+
+model Lease {
+  id            String    @id @default(uuid())
+  propertyId    String
+  property      Property  @relation(fields: [propertyId], references: [id])
+  tenantId      String
+  tenant        User      @relation("TenantLeases", fields: [tenantId], references: [id])
+  
+  startDate     DateTime
+  endDate       DateTime?
+  monthlyRent   Decimal   @db.Decimal(10, 2)
+  depositPaid   Decimal   @db.Decimal(10, 2)
+  active        Boolean   @default(true)
+
+  payments      RentPayment[]
+  createdAt     DateTime  @default(now())
+}
+
+model RentPayment {
+  id          String   @id @default(uuid())
+  leaseId     String
+  lease       Lease    @relation(fields: [leaseId], references: [id])
+  amount      Decimal  @db.Decimal(10, 2)
+  paidAt      DateTime @default(now())
+  periodMonth String   // e.g. "2026-09"
+  receiptUrl  String?
+}
+
+model MaintenanceRequest {
+  id          String              @id @default(uuid())
+  propertyId  String
+  property    Property            @relation(fields: [propertyId], references: [id])
+  tenantId    String
+  tenant      User                @relation("TenantRequests", fields: [tenantId], references: [id])
+  
+  title       String
+  description String              @db.Text
+  priority    MaintenancePriority @default(MEDIUM)
+  status      MaintenanceStatus   @default(SUBMITTED)
+  cost        Decimal?            @db.Decimal(10, 2)
+  images      String[]
+  
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+// --------------------------------------
+// PROJECT MANAGEMENT (CONSTRUCTION / RENOVATION)
+// --------------------------------------
+
+model Project {
+  id           String        @id @default(uuid())
+  title        String
+  description  String        @db.Text
+  clientId     String
+  client       User          @relation("ClientProjects", fields: [clientId], references: [id])
+  
+  status       ProjectStatus @default(PLANNING)
+  budget       Decimal       @db.Decimal(12, 2)
+  startDate    DateTime
+  targetEndDate DateTime?
+  
+  milestones   ProjectMilestone[]
+  updates      ProjectUpdate[]
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model ProjectMilestone {
+  id          String    @id @default(uuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  title       String
+  dueDate     DateTime?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+}
+
+model ProjectUpdate {
+  id                 String   @id @default(uuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  title              String
+  note               String   @db.Text
+  percentageProgress Int      // e.g., 45 for 45%
+  photos             String[]
+  createdAt          DateTime @default(now())
+}
